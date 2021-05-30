@@ -6,23 +6,25 @@
 <script src="./key.js"></script>
 </head>
 <body>
-<button id="connectButton">接続する</button>
-<div id="videoContainers" style="display: flex;">
-    <div>
-        <video id="myVideo" width="400px" style="background-color: black;" autoplay muted playsinline></video>
-        <br/>
+<button id="enterButton">入室する</button>
+<div id="videoContainers" style="display: flex; flex-wrap: wrap;">
+    <div style="padding: 4px">
+        <div style="width: 300px; height: 300px">
+            <video id="myVideo" style="width: 100%; height: 100%; background-color: black;" autoplay muted playsinline></video>
+        </div>
         あなた
         <label><input id="myCameraCheck" type="checkbox">カメラ</label>
         <label><input id="myMicCheck" type="checkbox">マイク</label>
     </div>
 </div>
-ログ<br/>
+<p>ログ</p>
 <div id="logDiv" style="border: 1px solid; height: 400px; border-radius: 4px;">
 </div>
 <template id="videoTmpl">
-    <div>
-        <video width="300px" style="background-color: black;" autoplay muted playsinline></video>
-        <br/>
+    <div style="padding: 4px">
+        <div style="width: 300px; height: 300px">
+            <video style="width: 100%; height: 100%; background-color: black;" autoplay muted playsinline></video>
+        </div>
         <span></span>
     </div>
 </template>
@@ -32,42 +34,51 @@ window.onload = async () => {
     const logDiv = document.querySelector("#logDiv");
 
     // カメラとマイクを取得する
-    const localStream = await navigator.mediaDevices
+    const myStream = await navigator.mediaDevices
         .getUserMedia({audio: true, video: true})
         .catch(console.error);
+
     // 最初はカメラoffかつマイクミュート
-    localStream.getVideoTracks()[0].enabled = false;
-    localStream.getAudioTracks()[0].enabled = false;
+    myStream.getVideoTracks().forEach(track => track.enabled = false);
+    myStream.getAudioTracks().forEach(track => track.enabled = false);
 
     // 自分の映像と音声を再生するvideoタグに関連づける
     const myVideo = document.querySelector("#myVideo");
-    myVideo.srcObject = localStream;
+    myVideo.srcObject = myStream;
     await myVideo.play().catch(console.error);
 
-    // SkyWayのPeerオブジェクトを作成
-    const myPeer = new window.Peer({
-        key: window.__SKYWAY_KEY__
+    // カメラのチェックボックスが有効になればカメラをonにする。
+    document.querySelector("#myCameraCheck").addEventListener('change', e => {
+        myStream.getVideoTracks().forEach(track => track.enabled = e.target.checked);
     });
 
-    // クリックすると接続を開始する
-    document.querySelector("#connectButton").addEventListener('click', e => {
-        e.preventDefault();
-        if (!myPeer.open) return;
+    // マイクのチェックボックスが有効になればマイクをonにする。
+    document.querySelector("#myMicCheck").addEventListener('click', e => {
+        myStream.getAudioTracks().forEach(track => track.enabled = e.target.checked);
+    });
 
-        // カメラのチェックボックスが有効になればカメラをonにする。
-        document.querySelector("#myCameraCheck").addEventListener('change', e => {
-            localStream.getVideoTracks()[0].enabled = e.target.checked;
-        });
+    // SkyWayのPeerオブジェクトを作成
+    const myPeer = new window.Peer({key: window.__SKYWAY_KEY__});
+    myPeer.on("open", id=>{
+        logDiv.append(`SkyWayに接続しました。IDは${id}です。`);
+        logDiv.append(document.createElement("br"));
+    })
+    myPeer.on('error', error=>{
+        logDiv.append(`SkyWayでエラーが発生しました。[${error.type}:${error.message}]`)
+        logDiv.append(document.createElement("br"));
+    });
 
-        // マイクのチェックボックスが有効になればマイクをonにする。
-        document.querySelector("#myMicCheck").addEventListener('click', e => {
-            localStream.getAudioTracks()[0].enabled = e.target.checked;
-        });
+    // クリックすると入室する
+    document.querySelector("#enterButton").addEventListener('click', e => {
+        if (!myPeer.open){
+            alert("まだSkyWayに接続中です。");
+            return;
+        }
 
         // ルームに入る。メッシュモード(ブラウザ同士が映像と音声を送り合う)
         const room = myPeer.joinRoom(
             roomId,
-            {mode: "mesh", stream: localStream});
+            {mode: "mesh", stream: myStream});
 
         // ルームに参加した時の処理を登録
         room.once('open', () => {
@@ -77,7 +88,7 @@ window.onload = async () => {
 
         // 他のユーザがルームに参加した時の処理を登録
         room.on('peerJoin', peerId => {
-            logDiv.append(`${peerId}が入室しました。<br/>`);
+            logDiv.append(`${peerId}が入室しました。`);
             logDiv.append(document.createElement("br"));
         });
 
@@ -90,6 +101,7 @@ window.onload = async () => {
             newVideoContainer.setAttribute('data-peer-id', stream.peerId);
             const video = newVideoContainer.querySelector("video");
             video.srcObject = stream;
+            video.muted = false;
             newVideoContainer.querySelector("span").textContent = stream.peerId;
             await video.play().catch(console.error);
         });
@@ -103,7 +115,7 @@ window.onload = async () => {
             video.srcObject.getTracks().forEach(track => track.stop());
             video.srcObject = null;
             videoContainer.remove();
-            logDiv.append(`${peerId} が退室しました。`);
+            logDiv.append(`${peerId}が退室しました。`);
             logDiv.append(document.createElement("br"));
         });
 
@@ -118,8 +130,6 @@ window.onload = async () => {
                 videoContainer.remove();
             });
         });
-
-        myPeer.on('error', console.error);
     });
 };
 </script>
