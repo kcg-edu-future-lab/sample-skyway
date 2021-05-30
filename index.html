@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf8">
+<script src="https://cdn.webrtc.ecl.ntt.com/skyway-4.4.1.js"></script>
+<script src="./key.js"></script>
+</head>
+<body>
+<button id="connectButton">接続する</button>
+<div id="videoContainers" style="display: flex;">
+    <div>
+        <video id="myVideo" width="400px" style="background-color: black;" autoplay muted playsinline></video>
+        <br/>
+        あなた
+        <label><input id="myCameraCheck" type="checkbox">カメラ</label>
+        <label><input id="myMicCheck" type="checkbox">マイク</label>
+    </div>
+</div>
+ログ<br/>
+<div id="logDiv" style="border: 1px solid; height: 400px; border-radius: 4px;">
+</div>
+<template id="videoTmpl">
+    <div>
+        <video width="300px" style="background-color: black;" autoplay muted playsinline></video>
+        <br/>
+        <span></span>
+    </div>
+</template>
+<script>
+window.onload = async () => {
+    const roomId = "salfjlkrjelkjslsfdjsd"; // ルームID。適当な文字列をいれる
+    const logDiv = document.querySelector("#logDiv");
+
+    // カメラとマイクを取得する
+    const localStream = await navigator.mediaDevices
+        .getUserMedia({audio: true, video: true})
+        .catch(console.error);
+    // 最初はカメラoffかつマイクミュート
+    localStream.getVideoTracks()[0].enabled = false;
+    localStream.getAudioTracks()[0].enabled = false;
+
+    // 自分の映像と音声を再生するvideoタグに関連づける
+    const myVideo = document.querySelector("#myVideo");
+    myVideo.srcObject = localStream;
+    await myVideo.play().catch(console.error);
+
+    // SkyWayのPeerオブジェクトを作成
+    const myPeer = new window.Peer({
+        key: window.__SKYWAY_KEY__
+    });
+
+    // クリックすると接続を開始する
+    document.querySelector("#connectButton").addEventListener('click', e => {
+        e.preventDefault();
+        if (!myPeer.open) return;
+
+        // カメラのチェックボックスが有効になればカメラをonにする。
+        document.querySelector("#myCameraCheck").addEventListener('change', e => {
+            localStream.getVideoTracks()[0].enabled = e.target.checked;
+        });
+
+        // マイクのチェックボックスが有効になればマイクをonにする。
+        document.querySelector("#myMicCheck").addEventListener('click', e => {
+            localStream.getAudioTracks()[0].enabled = e.target.checked;
+        });
+
+        // ルームに入る。メッシュモード(ブラウザ同士が映像と音声を送り合う)
+        const room = myPeer.joinRoom(
+            roomId,
+            {mode: "mesh", stream: localStream});
+
+        // ルームに参加した時の処理を登録
+        room.once('open', () => {
+            logDiv.append("入室しました。");
+            logDiv.append(document.createElement("br"));
+        });
+
+        // 他のユーザがルームに参加した時の処理を登録
+        room.on('peerJoin', peerId => {
+            logDiv.append(`${peerId}が入室しました。<br/>`);
+            logDiv.append(document.createElement("br"));
+        });
+
+        // 他のユーザの映像と音声が利用可能になった時の処理を登録
+        room.on('stream', async stream => {
+            // 新しいビデオコンテナを複製する
+            const newVideoContainer = document.querySelector("#videoTmpl")
+                .content.cloneNode(true).querySelector("div");
+            document.querySelector("#videoContainers").append(newVideoContainer);
+            newVideoContainer.setAttribute('data-peer-id', stream.peerId);
+            const video = newVideoContainer.querySelector("video");
+            video.srcObject = stream;
+            newVideoContainer.querySelector("span").textContent = stream.peerId;
+            await video.play().catch(console.error);
+        });
+
+        // 他の利用者がログアウトした時の処理を登録
+        room.on('peerLeave', peerId => {
+            const videoContainer = document.querySelector(
+                `[data-peer-id="${peerId}"]`
+            );
+            const video = videoContainer.querySelector("video");
+            video.srcObject.getTracks().forEach(track => track.stop());
+            video.srcObject = null;
+            videoContainer.remove();
+            logDiv.append(`${peerId} が退室しました。`);
+            logDiv.append(document.createElement("br"));
+        });
+
+        // for closing myself
+        room.once('close', () => {
+            logDiv.append('退室しました。');
+            logDiv.append(document.createElement("br"));
+            Array.from(document.querySelector("#videoContainers").children).forEach(videoContainer => {
+                const video = videoContainer.querySelector("video");
+                video.srcObject.getTracks().forEach(track => track.stop());
+                video.srcObject = null;
+                videoContainer.remove();
+            });
+        });
+
+        myPeer.on('error', console.error);
+    });
+};
+</script>
+</body>
+</html>
