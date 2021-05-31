@@ -10,6 +10,8 @@ git clone https://github.com/kcg-edu-future-lab/sample-skyway
 次に以下を参照し，無料アカウントを登録してAPIキーを取得してください。
 https://webrtc.ecl.ntt.com/documents/javascript-sdk.html#_1-%E6%BA%96%E5%82%99
 
+APIキーの利用可能ドメイン名に，localhostを追加してください。
+
 次に，key.js内に，APIキーを記述してください。
 
 index.htmlがあるディレクトリでHTTPサーバを起動し，ブラウザで表示してください。
