@@ -47,6 +47,15 @@ window.onload = async () => {
         myStream.getAudioTracks().forEach(track => track.enabled = e.target.checked);
     });
 
+    if(window.__SKYWAY_KEY__ == '<YOUR_KEY_HERE>'){
+        const span = document.createElement("span");
+        span.style.color = "red";
+        span.append("SkyWayのキーが設定されていません。" +
+            "key.jsの<YOUR_KEY_HERE>をSkyWayから取得したキーで置き換えてください。");
+        logDiv.append(span);
+        logDiv.append(document.createElement("br"));
+        return;
+    }
     // SkyWayのPeerオブジェクトを作成
     const myPeer = new window.Peer({
         key: window.__SKYWAY_KEY__
@@ -54,7 +63,7 @@ window.onload = async () => {
     myPeer.on("open", id=>{
         logDiv.append(`SkyWayに接続しました。IDは${id}です。`);
         logDiv.append(document.createElement("br"));
-    })
+    });
     myPeer.on('error', error=>{
         logDiv.append(`SkyWayでエラーが発生しました。[${error.type}:${error.message}]`)
         logDiv.append(document.createElement("br"));
