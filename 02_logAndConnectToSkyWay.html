@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf8">
-<script src="https://cdn.webrtc.ecl.ntt.com/skyway-4.4.1.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@skyway-sdk/room/dist/skyway_room-latest.js"></script>
 <script src="./key.js"></script>
 </head>
 <body>
@@ -20,55 +20,84 @@
 <div id="logDiv" style="border: 1px solid; height: 400px; border-radius: 4px;">
 </div>
 <script>
-window.onload = async () => {
+const { nowInSec, SkyWayAuthToken, SkyWayContext, SkyWayRoom, SkyWayStreamFactory, uuidV4 } = skyway_room;
+
+window.addEventListener("load", async ()=> {
+    
     const logDiv = document.querySelector("#logDiv");
 
     // カメラとマイクを取得する
-    const myStream = await navigator.mediaDevices
-        .getUserMedia({audio: true, video: true})
+    const { audio, video } = await SkyWayStreamFactory.createMicrophoneAudioAndCameraStream()
         .catch(console.error);
 
     // 最初はカメラoffかつマイクミュート
-    myStream.getVideoTracks().forEach(track => track.enabled = false);
-    myStream.getAudioTracks().forEach(track => track.enabled = false);
+    audio.track.enabled = false;
+    video.track.enabled = false;
 
-    // 自分の映像と音声を再生するvideoタグに関連づける
+    // 自分の音声と映像を再生するvideoタグに関連づける
     const myVideo = document.querySelector("#myVideo");
-    myVideo.srcObject = myStream;
+    myVideo.srcObject = new MediaStream([audio.track, video.track]);
     await myVideo.play().catch(console.error);
-
-    // カメラのチェックボックスが有効になればカメラをonにする。
-    document.querySelector("#myCameraCheck").addEventListener('change', e => {
-        myStream.getVideoTracks().forEach(track => track.enabled = e.target.checked);
-    });
 
     // マイクのチェックボックスが有効になればマイクをonにする。
     document.querySelector("#myMicCheck").addEventListener('click', e => {
-        myStream.getAudioTracks().forEach(track => track.enabled = e.target.checked);
+        const enabled = e.target.checked;
+        audio.track.enabled = enabled;
+        console.log(`audio: ${enabled}`);
     });
 
-    if(window.__SKYWAY_KEY__ == '<YOUR_KEY_HERE>'){
+    // カメラのチェックボックスが有効になればカメラをonにする。
+    document.querySelector("#myCameraCheck").addEventListener('change', e => {
+        const enabled = e.target.checked;
+        video.track.enabled = enabled;
+        console.log(`video: ${enabled}`);
+    });
+
+    if(window.__SKYWAY_APPLICATION_ID__ == 'YOUR_APPLICATION_ID'){
         const span = document.createElement("span");
         span.style.color = "red";
-        span.append("SkyWayのキーが設定されていません。" +
-            "key.jsの<YOUR_KEY_HERE>をSkyWayから取得したキーで置き換えてください。");
+        span.append("SkyWayのアプリケーションIDが設定されていません。" +
+            "key.jsのYOUR_APPLICATION_IDとYOUR_SECRET_KEYをSkyWayから取得した情報で置き換えてください。");
         logDiv.append(span);
         logDiv.append(document.createElement("br"));
         return;
     }
-    // SkyWayのPeerオブジェクトを作成
-    const myPeer = new window.Peer({
-        key: window.__SKYWAY_KEY__
+    // SkyWayに接続しaudioとvideoをpublish
+    const context = await SkyWayContext.Create(createSkywayContext(
+        window.__SKYWAY_APPLICATION_ID__, window.__SKYWAY_SECRET_KEY__));
+    const room = await SkyWayRoom.FindOrCreate(context, {
+        type: 'p2p', name: "SampleRoom"});
+    room.join().then(async me=>{
+        logDiv.append(`SkyWayに接続しました。IDは${me.id}です。`);
+        await me.publish(audio);
+        await me.publish(video);
     });
-    myPeer.on("open", id=>{
-        logDiv.append(`SkyWayに接続しました。IDは${id}です。`);
-        logDiv.append(document.createElement("br"));
-    });
-    myPeer.on('error', error=>{
-        logDiv.append(`SkyWayでエラーが発生しました。[${error.type}:${error.message}]`)
-        logDiv.append(document.createElement("br"));
-    });
-};
+});
+
+function createSkywayContext(applicationId, secretKey){
+    return new SkyWayAuthToken({
+        jti: uuidV4(), iat: nowInSec(), exp: nowInSec() + 60 * 60 * 24,
+        scope: {
+            app: {
+                id: applicationId, turn: true, actions: ['read'],
+                channels: [{
+                    id: '*', name: '*', actions: ['write'],
+                    members: [{
+                        id: '*', name: '*', actions: ['write'],
+                        publication: { actions: ['write']},
+                        subscription: { actions: ['write']},
+                    }],
+                    sfuBots: [{
+                        actions: ['write'],
+                        forwardings: [{
+                            actions: ['write']
+                        }]
+                    }]
+                }]
+            }
+        }
+    }).encode(secretKey);
+}
 </script>
 </body>
 </html>
