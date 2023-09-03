@@ -13,8 +13,8 @@
             <video id="myVideo" style="width: 100%; height: 100%; background-color: black;" autoplay muted playsinline></video>
         </div>
         あなた
-        <label><input id="myCameraCheck" type="checkbox">カメラ</label>
         <label><input id="myMicCheck" type="checkbox">マイク</label>
+        <label><input id="myCameraCheck" type="checkbox">カメラ</label>
     </div>
 </div>
 <p>ログ</p>
@@ -82,7 +82,7 @@ window.addEventListener("load", async ()=>{
         await me.publish(audio);
         await me.publish(video);
 
-        // 他のユーザのpublicationをsubscribeする登録
+        // 他のユーザのpublicationをsubscribeする
         const subscribeAndAttach = async (publication) => {
             const publisherId = publication.publisher.id;
             if (publisherId === me.id) return;
