@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf8">
-<script src="https://cdn.webrtc.ecl.ntt.com/skyway-4.4.1.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@skyway-sdk/room/dist/skyway_room-latest.js"></script>
 <script src="./key.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js" crossorigin="anonymous"></script>
 </head>
@@ -10,9 +10,9 @@
 <button id="enterButton">入室する</button>
 <div id="videoContainers" style="display: flex; flex-wrap: wrap;">
     <div style="padding: 4px">
-        <div style="width: 300px; height: 300px">
+        <div style="width: 400px; height: 300px">
             <video id="myVideo" style="display: none; width: 100%; height: 100%; background-color: black;" autoplay muted playsinline></video>
-            <canvas id="myCanvas" width="300px" height="300px"></canvas>
+            <canvas id="myCanvas" width="400" height="300" style="width: 100%; height: 100%"></canvas>
         </div>
         あなた
         <label><input id="myCameraCheck" type="checkbox" disabled>カメラ</label>
@@ -24,33 +24,49 @@
 </div>
 <template id="videoTmpl">
     <div style="padding: 4px">
-        <div style="width: 300px; height: 300px">
+        <div style="width: 400px; height: 300px">
             <video style="width: 100%; height: 100%; background-color: black;" autoplay muted playsinline></video>
         </div>
         <span></span>
     </div>
 </template>
 <script>
-window.onload = async () => {
+const { nowInSec, SkyWayAuthToken, SkyWayContext, SkyWayRoom,
+    SkyWayStreamFactory, uuidV4, LocalVideoStream } = skyway_room;
+
+window.addEventListener("load", async ()=>{
     const roomId = "salfjlkrjelkjslsfdjsd"; // ルームID。適当な文字列をいれる
     const logDiv = document.querySelector("#logDiv");
+    const log = message=>{
+        logDiv.append(message);
+        logDiv.append(document.createElement("br"));
+    };
 
     const myCanvas = document.querySelector("#myCanvas");
     const ctx = myCanvas.getContext("2d");
     ctx.fillRect(0, 0, myCanvas.width, myCanvas.height);
-    // カメラとマイクを取得する
-    const myMediaStream = await navigator.mediaDevices
-        .getUserMedia({audio: true, video: true})
+
+    // マイクとカメラを取得する
+    const micLs = await SkyWayStreamFactory.createMicrophoneAudioStream()
         .catch(console.error);
+    const video = await navigator.mediaDevices
+        .getUserMedia({video: true})
+        .catch(console.error);
+    const cameraLs = new LocalVideoStream(
+        video.getVideoTracks()[0],
+        {stopTrackWhenDisabled: true});
+
     // 自分の映像と音声を再生するvideoタグに関連づける
     const myVideo = document.querySelector("#myVideo");
-    myVideo.srcObject = myMediaStream;
+    myVideo.srcObject = new MediaStream([cameraLs.track]);
     await myVideo.play().catch(console.error);
     // Canvasの画像を入力とするストリームを作成する。
     const myCanvasStream = myCanvas.captureStream();
-    const myStream = new MediaStream();
-    myStream.addTrack(myCanvasStream.getVideoTracks()[0]);
-    myStream.addTrack(myMediaStream.getAudioTracks()[0]);
+    const selfieLs = new LocalVideoStream(
+            //camera.track,
+            myCanvasStream.getVideoTracks()[0],
+            {stopTrackWhenDisabled: true});
+    console.log(myCanvasStream);
 
     // セグメンテーションの利用準備
     const selfieSegmentation = new SelfieSegmentation({locateFile: (file) => {
@@ -65,10 +81,11 @@ window.onload = async () => {
     const bgImage = new Image();
     bgImage.src = "https://www.kcg.edu/sites/default/files/attachments/paragraph-page/2019-03/oc_kyoto.jpg";
 
-    // 最初はカメラoffかつマイクミュート
+    // 最初はマイクミュートかつカメラoff
     let cameraOn = false;
-    myStream.getVideoTracks().forEach(track => track.enabled = false);
-    myStream.getAudioTracks().forEach(track => track.enabled = false);
+    micLs.track.enabled = false;
+    cameraLs.track.enabled = false;
+    selfieLs.track.enabled = false;
 
     // カメラ映像からセグメンテーションを実行する
     let prevTime = 0;
@@ -98,96 +115,126 @@ window.onload = async () => {
         ctx.restore();
     }
 
+    // マイクのチェックボックスが有効になればマイクをonにする。
+    document.querySelector("#myMicCheck").addEventListener('click', e => {
+        micOn = e.target.checked;
+        micLs.track.enabled = micOn;
+    });
+
     // カメラのチェックボックスが有効になればカメラをonにする。
     document.querySelector("#myCameraCheck").addEventListener('change', e => {
         cameraOn = e.target.checked;
         if(cameraOn) requestAnimationFrame(()=>doSegmentation());
-        myStream.getVideoTracks().forEach(track => track.enabled = e.target.checked);
-    });
-
-    // マイクのチェックボックスが有効になればマイクをonにする。
-    document.querySelector("#myMicCheck").addEventListener('click', e => {
-        myStream.getAudioTracks().forEach(track => track.enabled = e.target.checked);
-    });
-
-    // SkyWayのPeerオブジェクトを作成
-    const myPeer = new window.Peer({key: window.__SKYWAY_KEY__});
-    myPeer.on("open", id=>{
-        logDiv.append(`SkyWayに接続しました。IDは${id}です。`);
-        logDiv.append(document.createElement("br"));
-    })
-    myPeer.on('error', error=>{
-        logDiv.append(`SkyWayでエラーが発生しました。[${error.type}:${error.message}]`)
-        logDiv.append(document.createElement("br"));
+        cameraLs.track.enabled = cameraOn;
+        selfieLs.track.enabled = cameraOn;
     });
 
     // クリックすると入室する
-    document.querySelector("#enterButton").addEventListener('click', e => {
-        if (!myPeer.open){
-            alert("まだSkyWayに接続中です。");
-            return;
-        }
-
-        // ルームに入る。メッシュモード(ブラウザ同士が映像と音声を送り合う)
-        const room = myPeer.joinRoom(
-            roomId,
-            {mode: "mesh", stream: myStream});
-
-        // ルームに参加した時の処理を登録
-        room.once('open', () => {
-            logDiv.append("入室しました。");
-            logDiv.append(document.createElement("br"));
+    document.querySelector("#enterButton").addEventListener('click', async e => {
+        // SkyWayのPeerオブジェクトを作成
+        const context = await SkyWayContext.Create(createSkywayContext(
+                window.__SKYWAY_APPLICATION_ID__, window.__SKYWAY_SECRET_KEY__));
+        const room = await SkyWayRoom.FindOrCreate(context, {
+            type: 'p2p', name: roomId});
+        const me = await room.join().catch(console.error);
+        window.addEventListener("beforeunload", ()=>{
+            me.leave();
         });
+        log(`SkyWayに接続しました。IDは${me.id}です。`);
+        await me.publish(micLs);
+//        await me.publish(cameraLs);
+        await me.publish(selfieLs);
 
-        // 他のユーザがルームに参加した時の処理を登録
-        room.on('peerJoin', peerId => {
-            logDiv.append(`${peerId}が入室しました。`);
-            logDiv.append(document.createElement("br"));
-        });
+        // 他のユーザのpublicationをsubscribeする
+        const subscribeAndAttach = async (publication) => {
+            const publisherId = publication.publisher.id;
+            if (publisherId === me.id) return;
+            const { stream } = await me.subscribe(publication.id);
+            console.log("subscribed to ", stream);
 
-        // 他のユーザの映像と音声が利用可能になった時の処理を登録
-        room.on('stream', async stream => {
-            // 新しいビデオコンテナを複製する
-            const newVideoContainer = document.querySelector("#videoTmpl")
-                .content.cloneNode(true).querySelector("div");
-            document.querySelector("#videoContainers").append(newVideoContainer);
-            newVideoContainer.setAttribute('data-peer-id', stream.peerId);
-            const video = newVideoContainer.querySelector("video");
-            video.srcObject = stream;
+            // publisher用のビデオコンテナを取得または作成する
+            let videoContainer = document.querySelector(`div[data-publisher-id="${publisherId}"]`);
+            if(!videoContainer){
+                log(`${publication.publisher.id}が入室しました。`);
+                videoContainer = document.querySelector("#videoTmpl")
+                    .content.cloneNode(true).querySelector("div");
+                    videoContainer.setAttribute("data-publisher-id", publisherId);
+                document.querySelector("#videoContainers").append(videoContainer);
+            }
+            const video = videoContainer.querySelector("video");
+            let mediaStream = null;
+            if(video.srcObject){
+                mediaStream = video.srcObject;
+            } else {
+                mediaStream = new MediaStream();
+                video.srcObject = mediaStream;
+            }
+            mediaStream.addTrack(stream.track);
+            //stream.attach(video);
             video.muted = false;
-            newVideoContainer.querySelector("span").textContent = stream.peerId;
             await video.play().catch(console.error);
-        });
+            videoContainer.querySelector("span").textContent = publisherId;
+        };
+        room.publications.forEach(subscribeAndAttach);
+        room.onStreamPublished.add((e) => subscribeAndAttach(e.publication));
 
         // 他の利用者がログアウトした時の処理を登録
-        room.on('peerLeave', peerId => {
-            const videoContainer = document.querySelector(
-                `[data-peer-id="${peerId}"]`
-            );
-            const video = videoContainer.querySelector("video");
-            video.srcObject.getTracks().forEach(track => track.stop());
-            video.srcObject = null;
-            videoContainer.remove();
-            logDiv.append(`${peerId}が退室しました。`);
-            logDiv.append(document.createElement("br"));
-        });
+        const stopVideo = (remoteVideo) => {
+            const stream = remoteVideo.srcObject;
+            stream.getTracks().forEach((track) => track.stop());
+            remoteVideo.srcObject = null;
+        };
+        room.onMemberLeft.add((e) => {
+            if (e.member.id === me.id) return;
 
-        // for closing myself
-        room.once('close', () => {
-            logDiv.append('退室しました。');
-            logDiv.append(document.createElement("br"));
+            log(`${e.member.id}が退室しました。`);
+
+            const remoteVideoContainer = document.querySelector("#videoContainers").querySelector(
+                `[data-publisher-id="${e.member.id}"]`
+            );
+            stopVideo(remoteVideoContainer.querySelector("video"));
+            remoteVideoContainer.remove();
+        });
+        me.onLeft.once(() => {
+            log('退室しました。');
             Array.from(document.querySelector("#videoContainers").children).forEach(videoContainer => {
                 const video = videoContainer.querySelector("video");
-                video.srcObject.getTracks().forEach(track => track.stop());
-                video.srcObject = null;
-                videoContainer.remove();
+                stopVideo(video);
             });
-        });
+            room.dispose();
+            room = undefined;
+        });        
     });
 
     document.querySelector("#myCameraCheck").removeAttribute("disabled");
     document.querySelector("#myMicCheck").removeAttribute("disabled");
-};
+});
+
+
+function createSkywayContext(applicationId, secretKey){
+    return new SkyWayAuthToken({
+        jti: uuidV4(), iat: nowInSec(), exp: nowInSec() + 60 * 60 * 24,
+        scope: {
+            app: {
+                id: applicationId, turn: true, actions: ['read'],
+                channels: [{
+                    id: '*', name: '*', actions: ['write'],
+                    members: [{
+                        id: '*', name: '*', actions: ['write'],
+                        publication: { actions: ['write']},
+                        subscription: { actions: ['write']},
+                    }],
+                    sfuBots: [{
+                        actions: ['write'],
+                        forwardings: [{
+                            actions: ['write']
+                        }]
+                    }]
+                }]
+            }
+        }
+    }).encode(secretKey);
+}
 </script>
 </body>
 </html>
